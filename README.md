@@ -169,7 +169,7 @@ python --version
 ## 📝 ファイル構成
 
 ```
-fp-tool1/
+（ローカルのフォルダー名）/
 ├── app.py                 # メインアプリケーション
 ├── requirements.txt       # 依存パッケージ
 ├── .streamlit/
