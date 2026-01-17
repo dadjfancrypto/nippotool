@@ -36,6 +36,8 @@ SYSTEM_PROMPT = """あなたはファイナンシャルプランナー（FP）�
 - 保険業界用語の補正を行ってください（例：iOSM→あいおい生命、20日7日→27日など）。
 - 文体は「だ・である」調で統一してください。
 - 誤変換や文脈の乱れを自然に補正してください。
+- 人名は漢字変換せず、カタカナで表記してください（例：たかしさん→タカシさん）。
+- 敬称は「様」ではなく「さん」を使用してください。
 
 【不足情報のチェック】
 以下の要素が入力内容に含まれているか確認してください：
@@ -80,11 +82,11 @@ YYYY年MM月DD日 HH:MM〜（形式）
 col_left, col_right = st.columns([1, 1])
 
 with col_left:
-    st.subheader("📝 入力（音声入力メモ）")
+    st.subheader("📝 入力")
     input_text = st.text_area(
-        "音声入力メモを貼り付けてください",
+        "メモを入力してください",
         height=500,
-        placeholder="例：今日はiOSMの保険について相談がありました。20日7日の午後2時から面談予定です。..."
+        placeholder="例：今日は生命保険について相談がありました。27日の午後2時から面談予定です。..."
     )
     
     generate_button = st.button("🚀 メモを整理", type="primary", use_container_width=True)
@@ -99,7 +101,7 @@ with col_right:
             with st.spinner("AIがメモを整理中..."):
                 try:
                     # Gemini API呼び出し（無料枠あり）
-                    prompt = f"{SYSTEM_PROMPT}\n\n以下の音声入力メモを整理して整形してください：\n\n{input_text}"
+                    prompt = f"{SYSTEM_PROMPT}\n\n以下のメモを整理して整形してください：\n\n{input_text}"
                     response = model.generate_content(
                         prompt,
                         generation_config=genai.types.GenerationConfig(
