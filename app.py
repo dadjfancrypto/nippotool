@@ -1,21 +1,22 @@
 import streamlit as st
 import google.generativeai as genai
+import re
 
-# ページ設定
+# Page configuration
 st.set_page_config(
     page_title="面談メモ整理ツール",
     page_icon="📋",
     layout="wide"
 )
 
-# タイトル
+# Title
 st.title("📋 面談メモ整理ツール")
 
-# 履歴の初期化
+# Initialize history in session state
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# APIキーの取得（Gemini APIを使用）
+# Get API key (using Gemini API)
 if "GEMINI_API_KEY" not in st.secrets:
     st.error("⚠️ `.streamlit/secrets.toml` に `GEMINI_API_KEY` が設定されていません。")
     st.info("💡 Google Gemini APIキーは無料で取得できます。")
@@ -28,12 +29,31 @@ if "GEMINI_API_KEY" not in st.secrets:
     """)
     st.stop()
 
-# Gemini APIクライアントの初期化
+# Initialize Gemini API client
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-# 無料枠が利用可能な軽量モデルを使用
+# Use lightweight model available in free tier
 model = genai.GenerativeModel('gemini-flash-lite-latest')
 
-# システムプロンプト
+# Function to extract and remove unconfirmed items from generated text
+def extract_unconfirmed_items(text):
+    """未確認事項を抽出し、テキストから削除する"""
+    # Pattern to match: ⚠️ 未確認: or ⚠️ **未確認**: followed by items
+    pattern = r'⚠️\s*\*?\*?未確認\*?\*?:\s*([^\n]+)'
+    match = re.search(pattern, text)
+    
+    if match:
+        unconfirmed_items = match.group(1).strip()
+        # Remove the unconfirmed line and any separator lines around it
+        # Remove lines with ⚠️ 未確認 and surrounding separator lines (----)
+        text_cleaned = re.sub(r'-{4,}\s*\n\s*⚠️\s*\*?\*?未確認\*?\*?:\s*[^\n]+\s*\n\s*-{4,}', '', text, flags=re.MULTILINE)
+        text_cleaned = re.sub(r'⚠️\s*\*?\*?未確認\*?\*?:\s*[^\n]+', '', text_cleaned)
+        text_cleaned = re.sub(r'-{4,}\s*\n\s*-{4,}', '', text_cleaned)  # Remove double separators
+        text_cleaned = text_cleaned.strip()
+        return text_cleaned, unconfirmed_items
+    else:
+        return text.strip(), None
+
+# System prompt for AI
 SYSTEM_PROMPT = """あなたはファイナンシャルプランナー（FP）の面談メモを整理・編集する専門家です。
 
 【変換ルール】
@@ -86,7 +106,7 @@ YYYY年MM月DD日 HH:MM〜（形式）
 --------------------------------------------------
 """
 
-# レイアウト：左右カラム
+# Layout: left and right columns
 col_left, col_right = st.columns([1, 1])
 
 with col_left:
@@ -108,7 +128,7 @@ with col_right:
         else:
             with st.spinner("AIがメモを整理中..."):
                 try:
-                    # Gemini API呼び出し（無料枠あり）
+                    # Call Gemini API (free tier available)
                     prompt = f"{SYSTEM_PROMPT}\n\n以下のメモを整理して整形してください：\n\n{input_text}"
                     response = model.generate_content(
                         prompt,
@@ -119,35 +139,43 @@ with col_right:
                     
                     generated_text = response.text
                     
-                    # 履歴に追加（最新を先頭に）
+                    # Extract unconfirmed items and clean the text
+                    cleaned_text, unconfirmed_items = extract_unconfirmed_items(generated_text)
+                    
+                    # Display unconfirmed items if any
+                    if unconfirmed_items:
+                        st.warning(f"⚠️ **未確認**: {unconfirmed_items}")
+                    
+                    # Add to history (latest entry at the beginning)
                     from datetime import datetime
                     history_entry = {
                         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "input": input_text,
-                        "output": generated_text
+                        "output": cleaned_text,
+                        "unconfirmed": unconfirmed_items
                     }
                     st.session_state.history.insert(0, history_entry)
                     
-                    # 履歴は最大50件まで保持
+                    # Keep maximum 50 history entries
                     if len(st.session_state.history) > 50:
                         st.session_state.history = st.session_state.history[:50]
                     
-                    # 生成結果を表示
+                    # Display generated result
                     st.text_area(
                         "整理されたメモ",
-                        value=generated_text,
+                        value=cleaned_text,
                         height=400,
                         key="output_text"
                     )
                     
-                    # クリップボードにコピー用のコードブロック（選択しやすくするため）
+                    # Code block for clipboard copy (easy to select)
                     st.markdown("**📋 コピー用（全選択してCtrl+C）**")
-                    st.code(generated_text, language=None)
+                    st.code(cleaned_text, language=None)
                     
                 except Exception as e:
                     error_message = str(e)
                     
-                    # エラーメッセージを日本語に変換
+                    # Convert error messages to Japanese
                     if "Connection" in error_message or "connection" in error_message or "failed" in error_message.lower():
                         st.error("❌ **接続エラーが発生しました**")
                         st.warning("インターネット接続を確認してください。VPNを使用している場合は、VPNの接続状態を確認してください。")
@@ -168,19 +196,19 @@ with col_right:
     else:
         st.info("👈 左側に入力テキストを貼り付けて、「メモを整理」ボタンをクリックしてください。")
 
-# 履歴セクション
+# History section
 st.markdown("---")
 st.subheader("📚 生成履歴")
 
 if st.session_state.history:
-    # 履歴クリアボタン
+    # Clear history button
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("🗑️ 履歴をクリア", type="secondary"):
             st.session_state.history = []
             st.rerun()
     
-    # 履歴表示（タブ形式）
+    # Display history (expandable format)
     for idx, entry in enumerate(st.session_state.history):
         with st.expander(f"📄 {entry['timestamp']}", expanded=(idx == 0)):
             col_input, col_output = st.columns([1, 1])
@@ -197,6 +225,9 @@ if st.session_state.history:
             
             with col_output:
                 st.markdown("**📄 生成結果**")
+                # Display unconfirmed items if any (for backward compatibility, check if exists)
+                if 'unconfirmed' in entry and entry['unconfirmed']:
+                    st.warning(f"⚠️ **未確認**: {entry['unconfirmed']}")
                 st.text_area(
                     "生成結果",
                     value=entry['output'],
@@ -205,13 +236,13 @@ if st.session_state.history:
                     label_visibility="collapsed"
                 )
             
-            # コピー用コードブロック
+            # Code block for clipboard copy
             st.markdown("**📋 コピー用（全選択してCtrl+C）**")
             st.code(entry['output'], language=None)
             st.markdown("---")
 else:
     st.info("📝 履歴はまだありません。メモを整理すると、ここに履歴が表示されます。")
 
-# フッター
+# Footer
 st.markdown("---")
 st.caption("🆓 Google Gemini APIを使用しているため、完全無料で利用できます。")
